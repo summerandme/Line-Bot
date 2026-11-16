@@ -1,8 +1,8 @@
 """LINE webhook server for the JiaJia bot.
 
-LINE sends every customer message to POST /callback. We answer LINE right away
-(so it never times out), then work out the reply in a background thread and send
-it with the reply token, falling back to a push message if the token expired.
+LINE sends every customer message to POST /callback. We work out the reply and
+send it with the reply token, falling back to a push message if the token expired.
+Runs on Vercel (api/index.py) or any always-on host (gunicorn app:app).
 """
 
 import logging
@@ -85,11 +85,19 @@ def _work(event) -> None:
         log.exception("failed to handle message from %s", user_id)
 
 
+# On Vercel (serverless) work stops once we answer LINE, so we finish the reply
+# first. On an always-on server we answer LINE at once and reply in a thread.
+SERVERLESS = bool(os.environ.get("VERCEL"))
+
+
 @handler.add(MessageEvent)
 def on_message(event):
     if getattr(event.source, "type", "") != "user":
         return  # ignore group chats
-    threading.Thread(target=_work, args=(event,), daemon=True).start()
+    if SERVERLESS:
+        _work(event)
+    else:
+        threading.Thread(target=_work, args=(event,), daemon=True).start()
 
 
 @app.post("/callback")

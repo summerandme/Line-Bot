@@ -9,13 +9,13 @@ checked against the knowledge base before it is sent.
 import json
 import os
 import re
-import threading
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from google import genai
 from google.genai import types
+
+from bot.store import make_store
 
 ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE = (ROOT / "knowledge.md").read_text(encoding="utf-8")
@@ -186,43 +186,31 @@ def admin_hours_line(lang: str, now: datetime = None) -> str:
 
 
 class Brain:
-    def __init__(self, client: genai.Client = None):
+    def __init__(self, client: genai.Client = None, store=None):
         self.client = client or genai.Client(
             api_key=os.environ.get("GEMINI_API_KEY"),
-            http_options=types.HttpOptions(timeout=15_000),  # ms per model attempt
+            http_options=types.HttpOptions(timeout=12_000),  # ms per model attempt
         )
+        self.store = store or make_store()
         self.last_model = None
-        self._lock = threading.Lock()
-        self._history = {}      # user_id -> (last_seen, [messages])
-        self._paused_until = {}  # user_id -> epoch seconds
 
-    # -- state
+    # -- state (kept in the store so it survives between serverless calls)
 
     def is_paused(self, user_id: str) -> bool:
-        with self._lock:
-            return self._paused_until.get(user_id, 0) > time.time()
+        return bool(self.store.get(f"pause:{user_id}"))
 
     def resume(self, user_id: str) -> None:
-        with self._lock:
-            self._paused_until.pop(user_id, None)
+        self.store.delete(f"pause:{user_id}")
 
     def _get_history(self, user_id: str) -> list:
-        with self._lock:
-            seen, msgs = self._history.get(user_id, (0, []))
-            if time.time() - seen > HISTORY_TTL_SECONDS:
-                return []
-            return list(msgs)
+        return list(self.store.get(f"history:{user_id}") or [])
 
     def _remember(self, user_id: str, user_text: str, bot_text: str) -> None:
-        with self._lock:
-            _, msgs = self._history.get(user_id, (0, []))
-            if time.time() - self._history.get(user_id, (0, []))[0] > HISTORY_TTL_SECONDS:
-                msgs = []
-            msgs = msgs + [
-                {"role": "user", "content": user_text},
-                {"role": "assistant", "content": bot_text},
-            ]
-            self._history[user_id] = (time.time(), msgs[-HISTORY_TURNS:])
+        msgs = self._get_history(user_id) + [
+            {"role": "user", "content": user_text},
+            {"role": "assistant", "content": bot_text},
+        ]
+        self.store.set(f"history:{user_id}", msgs[-HISTORY_TURNS:], HISTORY_TTL_SECONDS)
 
     # -- model call
 
@@ -288,8 +276,7 @@ class Brain:
         elif intent == "interested":
             messages = [body, CLOSING[lang]]
         elif intent == "talk_to_admin":
-            with self._lock:
-                self._paused_until[user_id] = time.time() + ADMIN_PAUSE_HOURS * 3600
+            self.store.set(f"pause:{user_id}", True, ADMIN_PAUSE_HOURS * 3600)
             messages = [TALK_TO_ADMIN[lang].format(hours=hours)]
         else:
             intent = "cannot_answer"

@@ -1,0 +1,9 @@
+{
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60,
+      "includeFiles": "{knowledge.md,app.py,bot/**}"
+    }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
+}
