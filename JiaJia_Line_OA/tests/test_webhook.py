@@ -80,6 +80,21 @@ class Webhook(unittest.TestCase):
         self.assertEqual(len(self.sent), 1)  # only the hand-off message
 
 
+class LiveSheet(unittest.TestCase):
+    def test_sheet_numbers_are_allowed_and_sent_to_model(self):
+        from bot import sheet
+        sheet._cache.update(at=10**12, text="Q: Wi-Fi installation price? A: 200 RMB")  # pretend fresh cache
+        os.environ["SHEET_CSV_URL"] = "https://example.invalid/sheet.csv"
+        try:
+            fake = FakeClient({"intent": "answer", "language": "en", "reply": "Wi-Fi installation is 200 RMB"})
+            out = B.Brain(fake, store=MemoryStore()).reply("u", "wifi price?")
+            self.assertEqual(out["intent"], "answer")
+            self.assertIn("200 RMB", fake.calls[0]["config"].system_instruction)
+        finally:
+            del os.environ["SHEET_CSV_URL"]
+            sheet._cache.update(at=0, text="")
+
+
 class Store(unittest.TestCase):
     def test_memory_store_expiry(self):
         s = MemoryStore()

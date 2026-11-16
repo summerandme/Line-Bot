@@ -7,6 +7,7 @@ checked against the knowledge base before it is sent.
 """
 
 import json
+import logging
 import os
 import re
 from datetime import datetime, timedelta, timezone
@@ -15,7 +16,10 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
+from bot.sheet import sheet_text
 from bot.store import make_store
+
+log = logging.getLogger("jiajia.brain")
 
 ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE = (ROOT / "knowledge.md").read_text(encoding="utf-8")
@@ -156,12 +160,12 @@ def _numbers(text: str) -> set:
 _KNOWN_NUMBERS = _numbers(KNOWLEDGE) | _numbers(json.dumps([CLOSING, HOURS_LINE, CANNOT_ANSWER], ensure_ascii=False))
 
 
-def unknown_numbers(reply: str, customer_text: str) -> set:
-    """Numbers in the reply that are not in the knowledge base or the customer's own message.
+def unknown_numbers(reply: str, customer_text: str, extra_known: str = "") -> set:
+    """Numbers in the reply that are not in the knowledge base, the live sheet or the customer's message.
 
     Small whole numbers (counts like "2 people", "3 months") are allowed.
     """
-    allowed = _KNOWN_NUMBERS | _numbers(customer_text)
+    allowed = _KNOWN_NUMBERS | _numbers(customer_text) | _numbers(extra_known)
     bad = set()
     for n in _numbers(reply):
         if n in allowed:
@@ -214,7 +218,7 @@ class Brain:
 
     # -- model call
 
-    def _ask_model(self, user_id: str, text: str) -> dict:
+    def _ask_model(self, user_id: str, text: str, live_sheet: str = "") -> dict:
         history = self._get_history(user_id) + [{"role": "user", "content": text}]
         contents = [
             types.Content(
@@ -223,21 +227,33 @@ class Brain:
             )
             for m in history
         ]
+        system = SYSTEM_PROMPT
+        if live_sheet:
+            system += (
+                "\n\nLatest FAQ from the shop's Google Sheet (also part of the knowledge base; if it disagrees "
+                f"with the knowledge base above, trust this sheet):\n<live_sheet>\n{live_sheet}\n</live_sheet>"
+            )
         config = types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
+            system_instruction=system,
             response_mime_type="application/json",
             response_json_schema=OUTPUT_SCHEMA,
-            temperature=0.3,
-            max_output_tokens=8192,
+            # temperature left at the default: Gemini 3.x models are tuned for 1.0
+            max_output_tokens=8192,  # thinking + answer share this budget; keep it roomy
         )
         errors = []
         for model in MODELS:
             try:
                 response = self.client.models.generate_content(model=model, contents=contents, config=config)
+                cand = response.candidates[0] if response.candidates else None
+                usage = getattr(response, "usage_metadata", None)
+                log.info(
+                    "model=%s finish=%s thoughts=%s answer=%s", model,
+                    getattr(cand, "finish_reason", None),
+                    getattr(usage, "thoughts_token_count", None), getattr(usage, "candidates_token_count", None),
+                )
                 raw = response.text
                 if not raw:
-                    reason = response.candidates[0].finish_reason if response.candidates else "no candidates"
-                    raise ValueError(f"empty response: {reason}")
+                    raise ValueError(f"empty response: {getattr(cand, 'finish_reason', 'no candidates')}")
                 result = json.loads(raw)
                 self.last_model = model
                 return result
@@ -254,8 +270,9 @@ class Brain:
             return {"messages": [], "intent": "paused", "note": "chat handed to admin"}
 
         note = ""
+        live_sheet = sheet_text()
         try:
-            result = self._ask_model(user_id, text)
+            result = self._ask_model(user_id, text, live_sheet)
             intent, lang, body = result["intent"], result["language"], result["reply"].strip()
         except Exception as exc:  # API down, bad JSON, refusal: never leave the customer hanging
             intent, lang, body = "cannot_answer", guess_language(text), ""
@@ -265,7 +282,7 @@ class Brain:
             lang = guess_language(text)
 
         if intent in ("answer", "interested"):
-            bad = unknown_numbers(body, text)
+            bad = unknown_numbers(body, text, live_sheet)
             if bad or not body:
                 note = f"blocked reply (unknown numbers {sorted(bad)})" if bad else "empty reply"
                 intent, body = "cannot_answer", ""
