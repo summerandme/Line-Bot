@@ -65,6 +65,22 @@ def _loading(user_id: str) -> None:
         log.info("loading animation skipped: %s", exc)
 
 
+def _display_name(user_id: str) -> str:
+    """The customer's LINE display name ("" if LINE won't give it), cached for a day."""
+    key = f"name:{user_id}"
+    cached = brain.store.get(key)
+    if cached is not None:
+        return cached
+    try:
+        with ApiClient(line_config) as api_client:
+            name = MessagingApi(api_client).get_profile(user_id).display_name or ""
+    except Exception as exc:  # user blocked the OA, API hiccup, ...: just use คุณลูกค้า
+        log.info("profile lookup skipped: %s", exc)
+        return ""
+    brain.store.set(key, name, 24 * 3600)
+    return name
+
+
 def _work(event) -> None:
     user_id = event.source.user_id
     try:
@@ -73,7 +89,7 @@ def _work(event) -> None:
                 log.info("user=%s paused (admin chat), staying quiet", user_id)
                 return
             _loading(user_id)
-            result = brain.reply(user_id, event.message.text)
+            result = brain.reply(user_id, event.message.text, name=_display_name(user_id))
             log.info("user=%s intent=%s note=%s", user_id, result["intent"], result["note"])
             texts = result["messages"]
         else:

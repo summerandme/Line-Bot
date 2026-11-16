@@ -48,6 +48,7 @@ class Webhook(unittest.TestCase):
         self.sent = []
         A._send = lambda user_id, token, texts: self.sent.append((user_id, token, texts))
         A._loading = lambda user_id: None
+        A._display_name = lambda user_id: "Nok"
         self.client = A.app.test_client()
 
     def use(self, payload):

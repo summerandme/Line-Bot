@@ -105,6 +105,9 @@ lines). Write plain text only: no markdown, no asterisks, no tables, no headings
 
 Language: reply in the customer's language. Thai customers: write Thai and end sentences politely with ค่ะ/นะคะ. \
 Everyone else: English.
+Addressing (Thai replies): call the customer "K.<their LINE name>" exactly as the system gives it, e.g. "K.Nok". If \
+no usable name is given, call them "คุณลูกค้า". Never use พี่, น้อง or other words for the customer. Use the name \
+at most once per reply, usually in the first line, and not in every single message of a chat.
 Currency: in Thai replies give package prices in THB with RMB in brackets, e.g. "6,700 บาท (1,340 RMB)". In English \
 replies give RMB. Add-ons only have RMB prices — give them in RMB in both languages.
 
@@ -176,6 +179,12 @@ def unknown_numbers(reply: str, customer_text: str, extra_known: str = "") -> se
     return bad
 
 
+def clean_name(name: str) -> str:
+    """A LINE display name made safe to put in the prompt; "" if there is no real name in it."""
+    name = " ".join((name or "").replace('"', "").split())[:30].strip()
+    return name if re.search(r"\w", name) else ""
+
+
 def guess_language(text: str) -> str:
     return "th" if _THAI_RE.search(text or "") else "en"
 
@@ -218,7 +227,7 @@ class Brain:
 
     # -- model call
 
-    def _ask_model(self, user_id: str, text: str, live_sheet: str = "") -> dict:
+    def _ask_model(self, user_id: str, text: str, live_sheet: str = "", name: str = "") -> dict:
         history = self._get_history(user_id) + [{"role": "user", "content": text}]
         contents = [
             types.Content(
@@ -228,6 +237,10 @@ class Brain:
             for m in history
         ]
         system = SYSTEM_PROMPT
+        if name:
+            system += f'\n\nThe customer\'s LINE name is "{name}", so call them "K.{name}" in Thai replies.'
+        else:
+            system += '\n\nThe customer has no usable LINE name, so call them "คุณลูกค้า" in Thai replies.'
         if live_sheet:
             system += (
                 "\n\nLatest FAQ from the shop's Google Sheet (also part of the knowledge base; if it disagrees "
@@ -263,7 +276,7 @@ class Brain:
 
     # -- public
 
-    def reply(self, user_id: str, text: str, now: datetime = None) -> dict:
+    def reply(self, user_id: str, text: str, now: datetime = None, name: str = "") -> dict:
         """Return {"messages": [str, ...], "intent": str, "note": str}. Empty messages = stay quiet."""
         text = (text or "").strip()
         if self.is_paused(user_id):
@@ -271,8 +284,9 @@ class Brain:
 
         note = ""
         live_sheet = sheet_text()
+        name = clean_name(name)
         try:
-            result = self._ask_model(user_id, text, live_sheet)
+            result = self._ask_model(user_id, text, live_sheet, name)
             intent, lang, body = result["intent"], result["language"], result["reply"].strip()
         except Exception as exc:  # API down, bad JSON, refusal: never leave the customer hanging
             intent, lang, body = "cannot_answer", guess_language(text), ""
@@ -282,7 +296,7 @@ class Brain:
             lang = guess_language(text)
 
         if intent in ("answer", "interested"):
-            bad = unknown_numbers(body, text, live_sheet)
+            bad = unknown_numbers(body, text, live_sheet + " " + name)
             if bad or not body:
                 note = f"blocked reply (unknown numbers {sorted(bad)})" if bad else "empty reply"
                 intent, body = "cannot_answer", ""
