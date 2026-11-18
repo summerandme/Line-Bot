@@ -34,8 +34,8 @@ CHINA_TZ = timezone(timedelta(hours=8))
 ADMIN_OPEN_HOUR = 9    # 09:00 China time
 ADMIN_CLOSE_HOUR = 18  # 18:00 China time
 ADMIN_PAUSE_HOURS = 12  # bot stays quiet in a chat after the customer asks for a human
-HANDOFF_QUIET_HOURS = 6  # after "admin will contact you", don't say it again in that chat for this long
-FORM_QUIET_HOURS = 24    # send the sign-up form link at most once a day per chat
+HANDOFF_BURST_SECONDS = 120  # several messages in a row get one "admin will contact you", not one each
+FORM_ONCE_DAYS = 60          # the sign-up form link is sent once per chat (remembered this long)
 HISTORY_TURNS = 10      # remembered messages per customer (user + bot)
 HISTORY_TTL_SECONDS = 24 * 3600
 
@@ -67,9 +67,25 @@ HOURS_LINE = {
     },
 }
 
-CANNOT_ANSWER = {
-    "th": "เดี๋ยวทางแอดมินจะรีบติดต่อกลับนะคะ 🙏",
-    "en": "Our admin will get back to you shortly 🙏",
+# Sent instead of an AI reply when an admin needs to take over. "first" the first time in a chat,
+# "again" if the customer asks more, "referral" when someone recommended JiaJia to them.
+HANDOFF = {
+    "th": {
+        "first": "เดี๋ยวทางแอดมินจะรีบติดต่อกลับนะคะ 🙏✨",
+        "again": "รับเรื่องไว้แล้วนะคะ 📝 เดี๋ยวแอดมินจะรีบตอบกลับโดยเร็วค่ะ 🙏",
+        "referral": "ยินดีต้อนรับค่ะ 🥰 ขอบคุณที่ได้รับการแนะนำมานะคะ รับเรื่องไว้แล้ว เดี๋ยวแอดมินจะรีบติดต่อกลับโดยเร็วค่ะ 🙏✨",
+    },
+    "en": {
+        "first": "Our admin will get back to you shortly 🙏✨",
+        "again": "Got it, noted 📝 Our admin will get back to you as soon as possible 🙏",
+        "referral": "Welcome! 🥰 Thanks for coming to us through a referral. Noted, and our admin will contact you shortly 🙏✨",
+    },
+}
+
+# Added under a hand-off when the team is offline.
+CLOSED_NOTE = {
+    "th": "🌙 ขณะนี้อยู่นอกเวลาทำการนะคะ แอดมินจะตอบกลับในเวลาทำการ 09:00–18:00 น. เวลาจีน (08:00–17:00 น. เวลาไทย) ค่ะ",
+    "en": "🌙 We're outside office hours right now. Our admin will reply during office hours, 9:00–18:00 China time (GMT+8).",
 }
 
 TALK_TO_ADMIN = {
@@ -88,14 +104,15 @@ SYSTEM_PROMPT = f"""You are the LINE chat assistant for JiaJia 家家, a small f
 students and workers find rooms in China. You answer customers 24/7.
 
 Voice: warm, friendly, peer-to-peer — like a local friend who has been through this. Honest and reassuring, never \
-salesy ("amazing deal!"). A few emojis are fine. Keep replies short enough to read on a phone (usually 2–6 short \
-lines). Write plain text only: no markdown, no asterisks, no tables, no headings.
+salesy ("amazing deal!"). Use 2–3 friendly emojis in every reply (e.g. 😊 🏠 ✨ 🙏 📲 🥰). Keep replies short: \
+usually 1–3 short lines, never more than 4. Write plain text only: no markdown, no asterisks, no tables, no headings.
 Don't repeat yourself: read the chat history first. Never re-send a greeting, a price, a list or an explanation \
 you already gave in this chat unless the customer asks for it again; answer only the new part of the question. \
 Don't start every message with a greeting or a thank-you.
 
-Language: reply in the customer's language. Thai customers: write Thai and end sentences politely with ค่ะ/นะคะ. \
-Everyone else: English.
+Language: the system tells you below which language to reply in. Follow it even if the customer's message mixes in \
+English words, names or places (e.g. "fudan", "COZI"), and even if earlier replies in the chat were in English. \
+Thai replies end sentences politely with ค่ะ/นะคะ.
 Addressing (Thai replies): call the customer "K.<their LINE name>" exactly as the system gives it, e.g. "K.Nok". If \
 no usable name is given, call them "คุณลูกค้า". Never use พี่, น้อง or other words for the customer. Use the name \
 at most once per reply, usually in the first line, and not in every single message of a chat.
@@ -116,8 +133,12 @@ system appends the sign-up form link and the WeChat note right after it, so do N
 WeChat yourself.
 - "cannot_answer": the knowledge base doesn't cover it (see above). reply = "".
 - "talk_to_admin": the customer explicitly asks to talk to a human / admin / staff. reply = "".
+- "referral": the customer says someone recommended JiaJia or gave them this contact (e.g. "ได้คอนแทคมาจากพี่ปุ้ย", \
+"my friend referred me"). reply = "" (the system welcomes them and says an admin will contact them).
+If the customer asks again about something you already answered in this chat, they need a person: choose \
+"cannot_answer" instead of answering the same thing again.
 
-Set "language" to "th" if the customer wrote Thai, otherwise "en".
+Set "language" to the language the system tells you to reply in.
 
 <knowledge_base>
 {KNOWLEDGE}
@@ -126,7 +147,7 @@ Set "language" to "th" if the customer wrote Thai, otherwise "en".
 OUTPUT_SCHEMA = {
     "type": "object",
     "properties": {
-        "intent": {"type": "string", "enum": ["answer", "interested", "cannot_answer", "talk_to_admin"]},
+        "intent": {"type": "string", "enum": ["answer", "interested", "cannot_answer", "talk_to_admin", "referral"]},
         "language": {"type": "string", "enum": ["th", "en"]},
         "reply": {"type": "string"},
     },
@@ -151,7 +172,7 @@ def _numbers(text: str) -> set:
     return out
 
 
-_KNOWN_NUMBERS = _numbers(KNOWLEDGE) | _numbers(json.dumps([CLOSING, HOURS_LINE, CANNOT_ANSWER], ensure_ascii=False))
+_KNOWN_NUMBERS = _numbers(KNOWLEDGE) | _numbers(json.dumps([CLOSING, HOURS_LINE, HANDOFF, CLOSED_NOTE], ensure_ascii=False))
 
 
 def unknown_numbers(reply: str, customer_text: str, extra_known: str = "") -> set:
@@ -180,10 +201,22 @@ def guess_language(text: str) -> str:
     return "th" if _THAI_RE.search(text or "") else "en"
 
 
-def admin_hours_line(lang: str, now: datetime = None) -> str:
+def chat_language(text: str, history: list) -> str:
+    """Thai if this message or one of the customer's last 3 messages has Thai in it, else English.
+
+    So a Thai customer who types only "COZI" or "ok" still gets Thai back.
+    """
+    recent = [m["content"] for m in history if m["role"] == "user"][-3:]
+    return "th" if any(_THAI_RE.search(t or "") for t in [text, *recent]) else "en"
+
+
+def is_open(now: datetime = None) -> bool:
     now = (now or datetime.now(timezone.utc)).astimezone(CHINA_TZ)
-    is_open = ADMIN_OPEN_HOUR <= now.hour < ADMIN_CLOSE_HOUR
-    return HOURS_LINE[lang]["open" if is_open else "closed"]
+    return ADMIN_OPEN_HOUR <= now.hour < ADMIN_CLOSE_HOUR
+
+
+def admin_hours_line(lang: str, now: datetime = None) -> str:
+    return HOURS_LINE[lang]["open" if is_open(now) else "closed"]
 
 
 # ---------------------------------------------------------------- brain
@@ -218,7 +251,8 @@ class Brain:
 
     # -- model call
 
-    def _ask_model(self, user_id: str, text: str, live_sheet: str = "", name: str = "") -> dict:
+    def _ask_model(self, user_id: str, text: str, live_sheet: str = "", name: str = "",
+                   lang: str = "en", form_sent: bool = False) -> dict:
         history = self._get_history(user_id) + [{"role": "user", "content": text}]
         contents = [
             types.Content(
@@ -228,6 +262,10 @@ class Brain:
             for m in history
         ]
         system = SYSTEM_PROMPT
+        system += "\n\nReply in " + ("Thai (ภาษาไทย)." if lang == "th" else "English.")
+        if form_sent:
+            system += (" The sign-up form link was already sent in this chat: don't mention the form again. If the "
+                       "customer gives booking details, thank them warmly and say an admin will follow up.")
         if name:
             system += f'\n\nThe customer\'s LINE name is "{name}", so call them "K.{name}" in Thai replies.'
         else:
@@ -276,15 +314,14 @@ class Brain:
         note = ""
         live_sheet = sheet_text()
         name = clean_name(name)
+        lang = chat_language(text, self._get_history(user_id))  # decided here, not by the model
+        form_sent = bool(self.store.get(f"form:{user_id}"))
         try:
-            result = self._ask_model(user_id, text, live_sheet, name)
-            intent, lang, body = result["intent"], result["language"], result["reply"].strip()
+            result = self._ask_model(user_id, text, live_sheet, name, lang, form_sent)
+            intent, body = result["intent"], result["reply"].strip()
         except Exception as exc:  # API down, bad JSON, refusal: never leave the customer hanging
-            intent, lang, body = "cannot_answer", guess_language(text), ""
+            intent, body = "cannot_answer", ""
             note = f"fallback after error: {type(exc).__name__}: {exc}"
-
-        if lang not in ("th", "en"):
-            lang = guess_language(text)
 
         if intent in ("answer", "interested"):
             bad = unknown_numbers(body, text, live_sheet + " " + name)
@@ -292,24 +329,29 @@ class Brain:
                 note = f"blocked reply (unknown numbers {sorted(bad)})" if bad else "empty reply"
                 intent, body = "cannot_answer", ""
 
-        hours = admin_hours_line(lang, now)
         if intent == "answer":
             messages = [body]
         elif intent == "interested":
             messages = [body]
-            if not self.store.get(f"form:{user_id}"):  # the form link once a day is enough
+            if not form_sent:  # the form link goes out once per chat
                 messages.append(CLOSING[lang])
-                self.store.set(f"form:{user_id}", True, FORM_QUIET_HOURS * 3600)
+                self.store.set(f"form:{user_id}", True, FORM_ONCE_DAYS * 86400)
         elif intent == "talk_to_admin":
             self.store.set(f"pause:{user_id}", True, ADMIN_PAUSE_HOURS * 3600)
-            messages = [TALK_TO_ADMIN[lang].format(hours=hours)]
+            messages = [TALK_TO_ADMIN[lang].format(hours=admin_hours_line(lang, now))]
         else:
-            intent = "cannot_answer"
-            if self.store.get(f"handoff:{user_id}"):  # already told them admin will get back: stay quiet
-                note = (note + " | " if note else "") + "hand-off already sent, staying quiet"
+            if intent != "referral":
+                intent = "cannot_answer"
+            t = (now or datetime.now(timezone.utc)).timestamp()
+            last = self.store.get(f"handoff:{user_id}")
+            if last and t - float(last) < HANDOFF_BURST_SECONDS:  # messages in a row: one hand-off is enough
+                note = (note + " | " if note else "") + "hand-off just sent, staying quiet"
                 return {"messages": [], "intent": intent, "note": note}
-            self.store.set(f"handoff:{user_id}", True, HANDOFF_QUIET_HOURS * 3600)
-            messages = [CANNOT_ANSWER[lang]]
+            self.store.set(f"handoff:{user_id}", t, FORM_ONCE_DAYS * 86400)
+            msg = HANDOFF[lang]["referral" if intent == "referral" else ("again" if last else "first")]
+            if not is_open(now):
+                msg += "\n" + CLOSED_NOTE[lang]
+            messages = [msg]
 
         self._remember(user_id, text, "\n\n".join(messages))
         return {"messages": messages, "intent": intent, "note": note}

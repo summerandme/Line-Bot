@@ -6,7 +6,7 @@ Run:  .venv/bin/python -m unittest discover -s tests -v
 import json
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -66,21 +66,39 @@ class Flow(unittest.TestCase):
         b = B.Brain(FakeClient({"intent": "answer", "language": "en", "reply": "Rent is around 2,800 RMB"}))
         out = b.reply("u1", "How much is rent near Fudan?", now=OPEN)
         self.assertEqual(out["intent"], "cannot_answer")
-        self.assertEqual(out["messages"], [B.CANNOT_ANSWER["en"]])
+        self.assertEqual(out["messages"], [B.HANDOFF["en"]["first"]])
         self.assertIn("blocked", out["note"])
 
     def test_cannot_answer_says_admin_will_contact(self):
         payload = {"intent": "cannot_answer", "language": "th", "reply": ""}
         out = B.Brain(FakeClient(payload)).reply("u1", "ค่าเช่าแถวฟู่ตั้น", now=OPEN)
-        self.assertEqual(out["messages"], ["เดี๋ยวทางแอดมินจะรีบติดต่อกลับนะคะ 🙏"])
+        self.assertEqual(out["messages"], ["เดี๋ยวทางแอดมินจะรีบติดต่อกลับนะคะ 🙏✨"])
 
-    def test_cannot_answer_sent_only_once(self):
+    def test_closed_hours_note_added(self):
+        payload = {"intent": "cannot_answer", "language": "th", "reply": ""}
+        msg = B.Brain(FakeClient(payload)).reply("u1", "ค่าเช่าแถวฟู่ตั้น", now=CLOSED)["messages"][0]
+        self.assertIn("แอดมินจะรีบติดต่อกลับ", msg)
+        self.assertIn("นอกเวลาทำการ", msg)
+
+    def test_messages_in_a_row_get_one_handoff(self):
         b = B.Brain(FakeClient({"intent": "cannot_answer", "language": "th", "reply": ""}))
-        self.assertTrue(b.reply("u1", "ค่าเช่าแถวฟู่ตั้น", now=OPEN)["messages"])
-        again = b.reply("u1", "แล้วแถวถงจี้ล่ะคะ", now=OPEN)
-        self.assertEqual(again["messages"], [])  # no second "admin will contact you"
-        self.assertIn("already sent", again["note"])
+        self.assertTrue(b.reply("u1", "กำลังจะไปเรียนเดือนมีนา", now=OPEN)["messages"])
+        burst = b.reply("u1", "สนใจหอ COZI", now=OPEN + timedelta(seconds=20))
+        self.assertEqual(burst["messages"], [])
+        self.assertIn("staying quiet", burst["note"])
         self.assertTrue(b.reply("u2", "ค่าเช่าแถวฟู่ตั้น", now=OPEN)["messages"])  # other customers unaffected
+
+    def test_asking_again_later_gets_acknowledged(self):
+        b = B.Brain(FakeClient({"intent": "cannot_answer", "language": "th", "reply": ""}))
+        b.reply("u1", "ค่าเช่าแถวฟู่ตั้น", now=OPEN)
+        again = b.reply("u1", "ค่าเช่าแถวฟู่ตั้นเท่าไหร่คะ", now=OPEN + timedelta(minutes=10))
+        self.assertEqual(again["messages"], [B.HANDOFF["th"]["again"]])
+
+    def test_referral_welcomed_and_handed_off(self):
+        b = B.Brain(FakeClient({"intent": "referral", "language": "th", "reply": ""}))
+        out = b.reply("u1", "ได้คอนแทคมาจากพี่ปุ้ย oren ค่ะ", now=OPEN)
+        self.assertEqual(out["intent"], "referral")
+        self.assertEqual(out["messages"], [B.HANDOFF["th"]["referral"]])
 
     def test_known_answers_still_flow_after_handoff(self):
         fake = FakeClient({"intent": "cannot_answer", "language": "th", "reply": ""})
@@ -90,9 +108,30 @@ class Flow(unittest.TestCase):
         self.assertEqual(b.reply("u1", "แพ็กเกจ solo ราคาเท่าไหร่", now=OPEN)["intent"], "answer")
 
     def test_form_link_sent_only_once(self):
-        b = B.Brain(FakeClient({"intent": "interested", "language": "en", "reply": "Great choice!"}))
+        fake = FakeClient({"intent": "interested", "language": "en", "reply": "Great choice!"})
+        b = B.Brain(fake)
         self.assertEqual(len(b.reply("u1", "I want SOLO", now=OPEN)["messages"]), 2)
         self.assertEqual(b.reply("u1", "How do I pay?", now=OPEN)["messages"], ["Great choice!"])
+        self.assertIn("already sent", fake.calls[-1]["config"].system_instruction)  # model is told too
+
+    def test_thai_customer_gets_thai_even_with_english_words(self):
+        # the model says "en", but the customer wrote Thai: Thai wins
+        fake = FakeClient({"intent": "cannot_answer", "language": "en", "reply": ""})
+        out = B.Brain(fake).reply("u1", "กำลังจะไปเรียนเดือนมีนา fudan ค่ะ", now=OPEN)
+        self.assertEqual(out["messages"], [B.HANDOFF["th"]["first"]])
+        self.assertIn("Reply in Thai", fake.calls[0]["config"].system_instruction)
+
+    def test_thai_chat_stays_thai_for_english_only_message(self):
+        fake = FakeClient({"intent": "answer", "language": "th", "reply": "ได้เลยค่ะ 😊"})
+        b = B.Brain(fake)
+        b.reply("u1", "สวัสดีค่ะ", now=OPEN)
+        b.reply("u1", "COZI", now=OPEN)
+        self.assertIn("Reply in Thai", fake.calls[-1]["config"].system_instruction)
+
+    def test_english_customer_gets_english(self):
+        fake = FakeClient({"intent": "answer", "language": "en", "reply": "Hi! 😊"})
+        B.Brain(fake).reply("u1", "hello", now=OPEN)
+        self.assertIn("Reply in English", fake.calls[0]["config"].system_instruction)
 
     def test_prompt_forbids_repeating(self):
         fake = FakeClient({"intent": "answer", "language": "en", "reply": "ok"})
