@@ -34,6 +34,8 @@ CHINA_TZ = timezone(timedelta(hours=8))
 ADMIN_OPEN_HOUR = 9    # 09:00 China time
 ADMIN_CLOSE_HOUR = 18  # 18:00 China time
 ADMIN_PAUSE_HOURS = 12  # bot stays quiet in a chat after the customer asks for a human
+HANDOFF_QUIET_HOURS = 6  # after "admin will contact you", don't say it again in that chat for this long
+FORM_QUIET_HOURS = 24    # send the sign-up form link at most once a day per chat
 HISTORY_TURNS = 10      # remembered messages per customer (user + bot)
 HISTORY_TTL_SECONDS = 24 * 3600
 
@@ -66,22 +68,8 @@ HOURS_LINE = {
 }
 
 CANNOT_ANSWER = {
-    "th": (
-        "เรื่องนี้ขอให้แอดมินตอบให้ตรงกับเคสของคุณนะคะ 😊 {hours}\n\n"
-        "ระหว่างนี้ขอเล่าไว้ก่อนว่า ปกติทีมจะเริ่มหาและพาดูห้องจริงช่วง 1–1.5 เดือนก่อนวันที่คุณมาถึง "
-        "ถ้ายังเหลือเวลามากกว่านั้น กรอกฟอร์มไว้ก่อนได้เลยค่ะ ทีมจะคัดห้องที่เหมาะกับงบและทำเลให้ "
-        "และส่งตัวอย่างห้องให้ดูว่าคุณชอบแนวไหน 🏠✨\n"
-        f"👉 {FORM_URL}\n"
-        "หลังกรอกเสร็จ ทีมจะติดต่อกลับทาง WeChat เพื่อส่งห้องให้เลือกค่ะ 📲"
-    ),
-    "en": (
-        "Good question! Let our admin check this for your specific case 😊 {hours}\n\n"
-        "In the meantime: we usually start searching and viewing real rooms about 1–1.5 months before you arrive. "
-        "If you're arriving later than that, just fill in this short form for now — we'll shortlist rooms that fit "
-        "your budget and area and send you some sample rooms, so we know your style 🏠✨\n"
-        f"👉 {FORM_URL}\n"
-        "Once you submit it, our team will reach out on WeChat to send you room options 📲"
-    ),
+    "th": "เดี๋ยวทางแอดมินจะรีบติดต่อกลับนะคะ 🙏",
+    "en": "Our admin will get back to you shortly 🙏",
 }
 
 TALK_TO_ADMIN = {
@@ -102,6 +90,9 @@ students and workers find rooms in China. You answer customers 24/7.
 Voice: warm, friendly, peer-to-peer — like a local friend who has been through this. Honest and reassuring, never \
 salesy ("amazing deal!"). A few emojis are fine. Keep replies short enough to read on a phone (usually 2–6 short \
 lines). Write plain text only: no markdown, no asterisks, no tables, no headings.
+Don't repeat yourself: read the chat history first. Never re-send a greeting, a price, a list or an explanation \
+you already gave in this chat unless the customer asks for it again; answer only the new part of the question. \
+Don't start every message with a greeting or a thank-you.
 
 Language: reply in the customer's language. Thai customers: write Thai and end sentences politely with ค่ะ/นะคะ. \
 Everyone else: English.
@@ -305,13 +296,20 @@ class Brain:
         if intent == "answer":
             messages = [body]
         elif intent == "interested":
-            messages = [body, CLOSING[lang]]
+            messages = [body]
+            if not self.store.get(f"form:{user_id}"):  # the form link once a day is enough
+                messages.append(CLOSING[lang])
+                self.store.set(f"form:{user_id}", True, FORM_QUIET_HOURS * 3600)
         elif intent == "talk_to_admin":
             self.store.set(f"pause:{user_id}", True, ADMIN_PAUSE_HOURS * 3600)
             messages = [TALK_TO_ADMIN[lang].format(hours=hours)]
         else:
             intent = "cannot_answer"
-            messages = [CANNOT_ANSWER[lang].format(hours=hours)]
+            if self.store.get(f"handoff:{user_id}"):  # already told them admin will get back: stay quiet
+                note = (note + " | " if note else "") + "hand-off already sent, staying quiet"
+                return {"messages": [], "intent": intent, "note": note}
+            self.store.set(f"handoff:{user_id}", True, HANDOFF_QUIET_HOURS * 3600)
+            messages = [CANNOT_ANSWER[lang]]
 
         self._remember(user_id, text, "\n\n".join(messages))
         return {"messages": messages, "intent": intent, "note": note}

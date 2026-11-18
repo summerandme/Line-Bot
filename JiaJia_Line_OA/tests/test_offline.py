@@ -66,18 +66,38 @@ class Flow(unittest.TestCase):
         b = B.Brain(FakeClient({"intent": "answer", "language": "en", "reply": "Rent is around 2,800 RMB"}))
         out = b.reply("u1", "How much is rent near Fudan?", now=OPEN)
         self.assertEqual(out["intent"], "cannot_answer")
-        self.assertIn("1–1.5", out["messages"][0])
+        self.assertEqual(out["messages"], [B.CANNOT_ANSWER["en"]])
         self.assertIn("blocked", out["note"])
 
-    def test_cannot_answer_hours_open_vs_closed(self):
+    def test_cannot_answer_says_admin_will_contact(self):
         payload = {"intent": "cannot_answer", "language": "th", "reply": ""}
-        open_msg = B.Brain(FakeClient(payload)).reply("u1", "ค่าเช่าแถวฟู่ตั้น", now=OPEN)["messages"][0]
-        closed_msg = B.Brain(FakeClient(payload)).reply("u1", "ค่าเช่าแถวฟู่ตั้น", now=CLOSED)["messages"][0]
-        self.assertIn("รีบตอบกลับ", open_msg)
-        self.assertIn("นอกเวลาทำการ", closed_msg)
-        for msg in (open_msg, closed_msg):
-            self.assertIn("linktr.ee/jiajia.roomhunt", msg)
-            self.assertIn("WeChat", msg)
+        out = B.Brain(FakeClient(payload)).reply("u1", "ค่าเช่าแถวฟู่ตั้น", now=OPEN)
+        self.assertEqual(out["messages"], ["เดี๋ยวทางแอดมินจะรีบติดต่อกลับนะคะ 🙏"])
+
+    def test_cannot_answer_sent_only_once(self):
+        b = B.Brain(FakeClient({"intent": "cannot_answer", "language": "th", "reply": ""}))
+        self.assertTrue(b.reply("u1", "ค่าเช่าแถวฟู่ตั้น", now=OPEN)["messages"])
+        again = b.reply("u1", "แล้วแถวถงจี้ล่ะคะ", now=OPEN)
+        self.assertEqual(again["messages"], [])  # no second "admin will contact you"
+        self.assertIn("already sent", again["note"])
+        self.assertTrue(b.reply("u2", "ค่าเช่าแถวฟู่ตั้น", now=OPEN)["messages"])  # other customers unaffected
+
+    def test_known_answers_still_flow_after_handoff(self):
+        fake = FakeClient({"intent": "cannot_answer", "language": "th", "reply": ""})
+        b = B.Brain(fake)
+        b.reply("u1", "ค่าเช่าแถวฟู่ตั้น", now=OPEN)
+        fake.payload = {"intent": "answer", "language": "th", "reply": "SOLO 6,700 บาท (1,340 RMB) ค่ะ"}
+        self.assertEqual(b.reply("u1", "แพ็กเกจ solo ราคาเท่าไหร่", now=OPEN)["intent"], "answer")
+
+    def test_form_link_sent_only_once(self):
+        b = B.Brain(FakeClient({"intent": "interested", "language": "en", "reply": "Great choice!"}))
+        self.assertEqual(len(b.reply("u1", "I want SOLO", now=OPEN)["messages"]), 2)
+        self.assertEqual(b.reply("u1", "How do I pay?", now=OPEN)["messages"], ["Great choice!"])
+
+    def test_prompt_forbids_repeating(self):
+        fake = FakeClient({"intent": "answer", "language": "en", "reply": "ok"})
+        B.Brain(fake).reply("u1", "hi", now=OPEN)
+        self.assertIn("Don't repeat yourself", fake.calls[0]["config"].system_instruction)
 
     def test_api_error_never_leaves_customer_hanging(self):
         b = B.Brain(FakeClient(error=RuntimeError("API down")))
