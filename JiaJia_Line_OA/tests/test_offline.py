@@ -205,6 +205,13 @@ class Addressing(unittest.TestCase):
     def test_line_name_used(self):
         self.assertIn('"K.Nok"', self._system("Nok"))
 
+    def test_name_not_used_twice_in_a_row(self):
+        fake = FakeClient({"intent": "answer", "language": "th", "reply": "สวัสดีค่ะ K.Nok 😊"})
+        b = B.Brain(fake)
+        b.reply("u1", "สวัสดี", now=OPEN, name="Nok")
+        b.reply("u1", "มีแพ็กเกจอะไรบ้าง", now=OPEN, name="Nok")
+        self.assertIn("Do NOT use the customer's name", fake.calls[-1]["config"].system_instruction)
+
     def test_no_name_falls_back(self):
         self.assertIn('"คุณลูกค้า"', self._system(""))
         self.assertIn('"คุณลูกค้า"', self._system("🌸✨"))  # emoji-only name is not a name

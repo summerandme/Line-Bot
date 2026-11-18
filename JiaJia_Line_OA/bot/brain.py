@@ -129,8 +129,8 @@ Pick exactly one intent:
 - "answer": you can fully answer from the knowledge base (prices, what's included, fees, steps, FAQ, greetings, thanks).
 - "interested": the customer shows buying intent — wants to book or start, asks how to sign up / pay / begin, says \
 which package they want, or gives move-in details. Write a short, warm reply (1–3 lines) about their choice; the \
-system appends the sign-up form link and the WeChat note right after it, so do NOT mention the form, the link or \
-WeChat yourself.
+system appends the sign-up form link and the WeChat note right after it, so do NOT mention the form, the link, \
+WeChat, "the system" or that more details will follow.
 - "cannot_answer": the knowledge base doesn't cover it (see above). reply = "".
 - "talk_to_admin": the customer explicitly asks to talk to a human / admin / staff. reply = "".
 - "referral": the customer says someone recommended JiaJia or gave them this contact (e.g. "ได้คอนแทคมาจากพี่ปุ้ย", \
@@ -269,7 +269,10 @@ class Brain:
         if form_sent:
             system += (" The sign-up form link was already sent in this chat: don't mention the form again. If the "
                        "customer gives booking details, thank them warmly and say an admin will follow up.")
-        if name:
+        last_bot = next((m["content"] for m in reversed(history) if m["role"] == "assistant"), "")
+        if name and f"K.{name}" in last_bot:  # used it last time: skip it this time
+            system += f'\n\nDo NOT use the customer\'s name in this reply (you used it last time).'
+        elif name:
             system += f'\n\nThe customer\'s LINE name is "{name}", so call them "K.{name}" in Thai replies.'
         else:
             system += '\n\nThe customer has no usable LINE name, so call them "คุณลูกค้า" in Thai replies.'
