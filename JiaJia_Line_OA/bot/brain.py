@@ -30,9 +30,9 @@ MODELS = [m.strip() for m in os.environ.get(
 ).split(",") if m.strip()]
 MODEL = MODELS[0]
 
-CHINA_TZ = timezone(timedelta(hours=8))
-ADMIN_OPEN_HOUR = 9    # 09:00 China time
-ADMIN_CLOSE_HOUR = 18  # 18:00 China time
+THAI_TZ = timezone(timedelta(hours=7))
+ADMIN_OPEN_HOUR = 10   # 10:00 Thai time
+ADMIN_CLOSE_HOUR = 18  # 18:00 Thai time
 ADMIN_PAUSE_HOURS = 12  # bot stays quiet in a chat after the customer asks for a human
 HANDOFF_BURST_SECONDS = 120  # several messages in a row get one "admin will contact you", not one each
 FORM_ONCE_DAYS = 60          # the sign-up form link is sent once per chat (remembered this long)
@@ -58,12 +58,12 @@ CLOSING = {
 
 HOURS_LINE = {
     "th": {
-        "open": "แอดมินจะรีบตอบกลับโดยเร็วที่สุด (เวลาทำการ 09:00–18:00 น. เวลาจีน / 08:00–17:00 น. เวลาไทย)",
-        "closed": "ตอนนี้อยู่นอกเวลาทำการ แอดมินจะตอบกลับในเวลาทำการถัดไป 09:00 น. เวลาจีน (08:00 น. เวลาไทย) ค่ะ",
+        "open": "แอดมินจะรีบตอบกลับโดยเร็วที่สุด (เวลาทำการ 10:00–18:00 น.)",
+        "closed": "ตอนนี้อยู่นอกเวลาทำการ แอดมินจะตอบกลับในเวลาทำการถัดไป 10:00 น. ค่ะ",
     },
     "en": {
-        "open": "Our admin will get back to you as soon as possible (9:00–18:00 China time, GMT+8).",
-        "closed": "We're outside office hours right now — our admin will reply from 9:00 China time (GMT+8).",
+        "open": "Our admin will get back to you as soon as possible (office hours 10:00–18:00 Thailand time, GMT+7).",
+        "closed": "We're outside office hours right now — our admin will reply from 10:00 Thailand time (GMT+7).",
     },
 }
 
@@ -84,8 +84,8 @@ HANDOFF = {
 
 # Added under a hand-off when the team is offline.
 CLOSED_NOTE = {
-    "th": "🌙 ขณะนี้อยู่นอกเวลาทำการนะคะ แอดมินจะตอบกลับในเวลาทำการ 09:00–18:00 น. เวลาจีน (08:00–17:00 น. เวลาไทย) ค่ะ",
-    "en": "🌙 We're outside office hours right now. Our admin will reply during office hours, 9:00–18:00 China time (GMT+8).",
+    "th": "🌙 ขณะนี้อยู่นอกเวลาทำการนะคะ แอดมินจะตอบกลับในเวลาทำการ 10:00–18:00 น. ค่ะ",
+    "en": "🌙 We're outside office hours right now. Our admin will reply during office hours, 10:00–18:00 Thailand time (GMT+7).",
 }
 
 TALK_TO_ADMIN = {
@@ -211,7 +211,7 @@ def chat_language(text: str, history: list) -> str:
 
 
 def is_open(now: datetime = None) -> bool:
-    now = (now or datetime.now(timezone.utc)).astimezone(CHINA_TZ)
+    now = (now or datetime.now(timezone.utc)).astimezone(THAI_TZ)
     return ADMIN_OPEN_HOUR <= now.hour < ADMIN_CLOSE_HOUR
 
 

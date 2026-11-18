@@ -32,8 +32,8 @@ class FakeClient:
         return SimpleNamespace(text=json.dumps(self.payload, ensure_ascii=False), candidates=[])
 
 
-OPEN = datetime(2026, 11, 16, 3, 0, tzinfo=timezone.utc)     # 11:00 China time
-CLOSED = datetime(2026, 11, 16, 15, 0, tzinfo=timezone.utc)  # 23:00 China time
+OPEN = datetime(2026, 11, 16, 5, 0, tzinfo=timezone.utc)     # 12:00 Thai time
+CLOSED = datetime(2026, 11, 16, 15, 0, tzinfo=timezone.utc)  # 22:00 Thai time
 
 
 class NumberGuard(unittest.TestCase):
@@ -79,6 +79,15 @@ class Flow(unittest.TestCase):
         msg = B.Brain(FakeClient(payload)).reply("u1", "ค่าเช่าแถวฟู่ตั้น", now=CLOSED)["messages"][0]
         self.assertIn("แอดมินจะรีบติดต่อกลับ", msg)
         self.assertIn("นอกเวลาทำการ", msg)
+
+    def test_office_hours_are_10_to_18_thai_time(self):
+        thai = lambda h, m=0: datetime(2026, 11, 16, h, m, tzinfo=B.THAI_TZ)
+        self.assertFalse(B.is_open(thai(9, 59)))
+        self.assertTrue(B.is_open(thai(10, 0)))
+        self.assertTrue(B.is_open(thai(17, 59)))
+        self.assertFalse(B.is_open(thai(18, 0)))
+        self.assertNotIn("จีน", B.CLOSED_NOTE["th"])
+        self.assertIn("10:00–18:00", B.CLOSED_NOTE["th"])
 
     def test_messages_in_a_row_get_one_handoff(self):
         b = B.Brain(FakeClient({"intent": "cannot_answer", "language": "th", "reply": ""}))
