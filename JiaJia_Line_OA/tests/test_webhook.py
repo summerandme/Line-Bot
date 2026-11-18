@@ -18,7 +18,7 @@ os.environ["VERCEL"] = "1"  # exercise the serverless (finish-before-answering) 
 import app as A  # noqa: E402
 from bot import brain as B  # noqa: E402
 from bot.store import MemoryStore  # noqa: E402
-from test_offline import FakeClient  # noqa: E402
+from test_offline import FakeClient, ReturningStore  # noqa: E402
 
 
 def signed(body: dict):
@@ -46,13 +46,13 @@ def text_event(text, user="Uabc", kind="text"):
 class Webhook(unittest.TestCase):
     def setUp(self):
         self.sent = []
-        A._send = lambda user_id, token, texts: self.sent.append((user_id, token, texts))
+        A._send = lambda user_id, token, texts, buttons=(): self.sent.append((user_id, token, texts))
         A._loading = lambda user_id: None
         A._display_name = lambda user_id: "Nok"
         self.client = A.app.test_client()
 
     def use(self, payload):
-        A.brain = B.Brain(FakeClient(payload), store=MemoryStore())
+        A.brain = B.Brain(FakeClient(payload), store=ReturningStore())
 
     def test_reply_is_sent_before_returning(self):
         self.use({"intent": "answer", "language": "th", "reply": "SOLO 6,700 บาท (1,340 RMB) ค่ะ"})
@@ -88,7 +88,7 @@ class LiveSheet(unittest.TestCase):
         os.environ["SHEET_CSV_URL"] = "https://example.invalid/sheet.csv"
         try:
             fake = FakeClient({"intent": "answer", "language": "en", "reply": "Wi-Fi installation is 200 RMB"})
-            out = B.Brain(fake, store=MemoryStore()).reply("u", "wifi price?")
+            out = B.Brain(fake, store=ReturningStore()).reply("u", "wifi price?")
             self.assertEqual(out["intent"], "answer")
             self.assertIn("200 RMB", fake.calls[0]["config"].system_instruction)
         finally:
@@ -105,7 +105,7 @@ class Store(unittest.TestCase):
         self.assertIsNone(s.get("k"))
 
     def test_history_survives_new_brain_with_shared_store(self):
-        shared = MemoryStore()  # stands in for Upstash shared by every Vercel call
+        shared = ReturningStore()  # stands in for Upstash shared by every Vercel call
         B.Brain(FakeClient({"intent": "answer", "language": "en", "reply": "Hi!"}), store=shared).reply("u", "hello")
         fake = FakeClient({"intent": "answer", "language": "en", "reply": "ok"})
         B.Brain(fake, store=shared).reply("u", "and for 2 people?")

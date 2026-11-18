@@ -19,8 +19,11 @@ from linebot.v3.exceptions import InvalidSignatureError  # noqa: E402
 from linebot.v3.messaging import (  # noqa: E402
     ApiClient,
     Configuration,
+    MessageAction,
     MessagingApi,
     PushMessageRequest,
+    QuickReply,
+    QuickReplyItem,
     ReplyMessageRequest,
     ShowLoadingAnimationRequest,
     TextMessage,
@@ -41,10 +44,15 @@ line_config = Configuration(access_token=CHANNEL_TOKEN)
 brain = Brain()
 
 
-def _send(user_id: str, reply_token: str, texts: list) -> None:
+def _send(user_id: str, reply_token: str, texts: list, buttons: list = ()) -> None:
+    """Send up to 5 texts; buttons [(label, text), ...] show as tap-to-send choices under the last one."""
     messages = [TextMessage(text=t[:5000]) for t in texts if t][:5]
     if not messages:
         return
+    if buttons:
+        messages[-1].quick_reply = QuickReply(items=[
+            QuickReplyItem(action=MessageAction(label=label[:20], text=text)) for label, text in buttons[:13]
+        ])
     with ApiClient(line_config) as api_client:
         api = MessagingApi(api_client)
         try:
@@ -91,12 +99,12 @@ def _work(event) -> None:
             _loading(user_id)
             result = brain.reply(user_id, event.message.text, name=_display_name(user_id))
             log.info("user=%s intent=%s note=%s", user_id, result["intent"], result["note"])
-            texts = result["messages"]
+            texts, buttons = result["messages"], result["quick_replies"]
         else:
             if brain.is_paused(user_id):
                 return
-            texts = brain.non_text_reply()
-        _send(user_id, event.reply_token, texts)
+            texts, buttons = brain.non_text_reply(), []
+        _send(user_id, event.reply_token, texts, buttons)
     except Exception:
         log.exception("failed to handle message from %s", user_id)
 
