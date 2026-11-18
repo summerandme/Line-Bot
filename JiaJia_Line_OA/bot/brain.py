@@ -115,7 +115,7 @@ English words, names or places (e.g. "fudan", "COZI"), and even if earlier repli
 Thai replies end sentences politely with ค่ะ/นะคะ.
 Addressing (Thai replies): call the customer "K.<their LINE name>" exactly as the system gives it, e.g. "K.Nok". If \
 no usable name is given, call them "คุณลูกค้า". Never use พี่, น้อง or other words for the customer. Use the name \
-at most once per reply, usually in the first line, and not in every single message of a chat.
+only in your first reply of a chat and then now and then (at most every third reply), never in two replies in a row.
 Currency: in Thai replies give package prices in THB with RMB in brackets, e.g. "6,700 บาท (1,340 RMB)". In English \
 replies give RMB. Add-ons only have RMB prices — give them in RMB in both languages.
 
@@ -135,8 +135,9 @@ WeChat yourself.
 - "talk_to_admin": the customer explicitly asks to talk to a human / admin / staff. reply = "".
 - "referral": the customer says someone recommended JiaJia or gave them this contact (e.g. "ได้คอนแทคมาจากพี่ปุ้ย", \
 "my friend referred me"). reply = "" (the system welcomes them and says an admin will contact them).
-If the customer asks again about something you already answered in this chat, they need a person: choose \
-"cannot_answer" instead of answering the same thing again.
+Repeated question: only if the customer sends the SAME question again (nearly the same words) right after you \
+already answered it, they need a person: choose "cannot_answer". A follow-up or a narrower question (e.g. "how much is \
+SOLO?" after you listed all packages) is NOT a repeat: answer it briefly.
 
 Set "language" to the language the system tells you to reply in.
 
@@ -159,6 +160,8 @@ OUTPUT_SCHEMA = {
 
 _NUM_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
 _THAI_RE = re.compile(r"[฀-๿]")
+# Questions the admin always answers personally, whatever the model thinks.
+_ADMIN_ONLY_RE = re.compile(r"discount|promo|coupon|cheaper|lower price|ส่วนลด|ลดราคา|ลดได้|ลดหน่อย|โปรโมชั่น|มีโปร|โปรไหม|คูปอง|ถูกลง", re.I)
 
 
 def _numbers(text: str) -> set:
@@ -323,6 +326,10 @@ class Brain:
             intent, body = "cannot_answer", ""
             note = f"fallback after error: {type(exc).__name__}: {exc}"
 
+        if intent in ("answer", "interested") and _ADMIN_ONLY_RE.search(text):
+            note = "discount question: admin answers"
+            intent, body = "cannot_answer", ""
+
         if intent in ("answer", "interested"):
             bad = unknown_numbers(body, text, live_sheet + " " + name)
             if bad or not body:
@@ -344,7 +351,7 @@ class Brain:
                 intent = "cannot_answer"
             t = (now or datetime.now(timezone.utc)).timestamp()
             last = self.store.get(f"handoff:{user_id}")
-            if last and t - float(last) < HANDOFF_BURST_SECONDS:  # messages in a row: one hand-off is enough
+            if intent != "referral" and last and t - float(last) < HANDOFF_BURST_SECONDS:  # messages in a row: one hand-off is enough
                 note = (note + " | " if note else "") + "hand-off just sent, staying quiet"
                 return {"messages": [], "intent": intent, "note": note}
             self.store.set(f"handoff:{user_id}", t, FORM_ONCE_DAYS * 86400)

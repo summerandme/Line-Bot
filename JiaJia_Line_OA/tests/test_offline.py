@@ -109,6 +109,19 @@ class Flow(unittest.TestCase):
         self.assertEqual(out["intent"], "referral")
         self.assertEqual(out["messages"], [B.HANDOFF["th"]["referral"]])
 
+    def test_referral_welcomed_even_right_after_a_handoff(self):
+        fake = FakeClient({"intent": "cannot_answer", "language": "th", "reply": ""})
+        b = B.Brain(fake)
+        b.reply("u1", "ค่าเช่าแถวฟู่ตั้น", now=OPEN)
+        fake.payload = {"intent": "referral", "language": "th", "reply": ""}
+        out = b.reply("u1", "ได้คอนแทคมาจากพี่ปุ้ยค่ะ", now=OPEN + timedelta(seconds=30))
+        self.assertEqual(out["messages"], [B.HANDOFF["th"]["referral"]])
+
+    def test_discount_questions_always_go_to_admin(self):
+        for q in ("Can I get a discount?", "มีส่วนลดไหมคะ", "ลดราคาได้ไหม", "มีโปรไหมคะ"):
+            b = B.Brain(FakeClient({"intent": "answer", "language": "en", "reply": "Prices are fixed 😊"}))
+            self.assertEqual(b.reply("u1", q, now=OPEN)["intent"], "cannot_answer", q)
+
     def test_known_answers_still_flow_after_handoff(self):
         fake = FakeClient({"intent": "cannot_answer", "language": "th", "reply": ""})
         b = B.Brain(fake)
