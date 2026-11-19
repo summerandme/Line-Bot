@@ -72,9 +72,21 @@ class UpstashStore:
             log.warning("store delete failed: %s", exc)
 
 
+def _env_ending(*suffixes):
+    """First env var named exactly like, or ending in, one of the suffixes (Vercel may add a prefix)."""
+    for suffix in suffixes:
+        if os.environ.get(suffix):
+            return os.environ[suffix]
+    for suffix in suffixes:
+        for name, value in sorted(os.environ.items()):
+            if name.endswith("_" + suffix) and value:
+                return value
+    return None
+
+
 def make_store():
-    url = os.environ.get("UPSTASH_REDIS_REST_URL") or os.environ.get("KV_REST_API_URL")
-    token = os.environ.get("UPSTASH_REDIS_REST_TOKEN") or os.environ.get("KV_REST_API_TOKEN")
+    url = _env_ending("UPSTASH_REDIS_REST_URL", "KV_REST_API_URL")
+    token = _env_ending("UPSTASH_REDIS_REST_TOKEN", "KV_REST_API_TOKEN")
     if url and token:
         log.info("using Upstash Redis for chat memory")
         return UpstashStore(url, token)

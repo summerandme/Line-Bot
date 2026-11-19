@@ -146,7 +146,8 @@ def callback():
 
 @app.get("/")
 def health():
-    return "JiaJia bot is running"
+    memory = "saved (Upstash)" if type(brain.store).__name__ == "UpstashStore" else "temporary"
+    return f"JiaJia bot is running. Memory: {memory}"
 
 
 if __name__ == "__main__":
