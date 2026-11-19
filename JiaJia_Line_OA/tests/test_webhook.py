@@ -80,6 +80,28 @@ class Webhook(unittest.TestCase):
         self.client.post("/callback", data=raw, headers=headers)
         self.assertEqual(len(self.sent), 1)  # only the hand-off message
 
+    def _first_contact_waits(self, text, payload):
+        A.brain = B.Brain(FakeClient(payload), store=MemoryStore())  # brand-new customer
+        waits, real_sleep = [], A.time.sleep
+        A.time.sleep = waits.append
+        try:
+            raw, headers = signed(text_event(text, user="Unew"))
+            self.client.post("/callback", data=raw, headers=headers)
+        finally:
+            A.time.sleep = real_sleep
+        return waits
+
+    def test_english_newcomer_waits_for_line_auto_message(self):
+        waits = self._first_contact_waits("Hi there!", {"intent": "greeting", "language": "en", "reply": ""})
+        self.assertEqual(len(waits), 1)
+        self.assertGreater(waits[0], 0)
+        self.assertIn("Xiao Jia", self.sent[0][2][0])
+
+    def test_thai_newcomer_does_not_wait(self):
+        waits = self._first_contact_waits("สวัสดีค่ะ", {"intent": "greeting", "language": "th", "reply": ""})
+        self.assertEqual(waits, [])
+        self.assertIn("Xiao Jia", self.sent[0][2][0])
+
 
 class LiveSheet(unittest.TestCase):
     def test_sheet_numbers_are_allowed_and_sent_to_model(self):

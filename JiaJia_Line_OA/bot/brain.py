@@ -456,7 +456,8 @@ class Brain:
 
         self._remember(user_id, text, "\n\n".join(messages))
         quick = [] if intent == "talk_to_admin" else MENU[lang]
-        return {"messages": messages, "quick_replies": quick, "intent": intent, "note": note}
+        return {"messages": messages, "quick_replies": quick, "intent": intent, "note": note,
+                "lang": lang, "first": first}
 
     def non_text_reply(self) -> list:
         """Stickers, photos, voice: we can't tell the language, so answer in both."""

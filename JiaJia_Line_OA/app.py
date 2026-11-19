@@ -8,6 +8,7 @@ Runs on Vercel (api/index.py) or any always-on host (gunicorn app:app).
 import logging
 import os
 import threading
+import time
 
 from dotenv import load_dotenv
 from flask import Flask, abort, request
@@ -31,6 +32,11 @@ from linebot.v3.messaging import (  # noqa: E402
 from linebot.v3.webhooks import MessageEvent, TextMessageContent  # noqa: E402
 
 from bot.brain import Brain  # noqa: E402
+
+# LINE OA's own auto-response sends English info the moment a foreign customer writes.
+# Xiao Jia's first reply to them waits until this many seconds after the message arrived,
+# so it always lands after LINE's message instead of in the middle of it.
+EN_FIRST_WAIT_SECONDS = float(os.environ.get("EN_FIRST_WAIT_SECONDS", "6"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("jiajia")
@@ -90,6 +96,7 @@ def _display_name(user_id: str) -> str:
 
 
 def _work(event) -> None:
+    started = time.monotonic()
     user_id = event.source.user_id
     try:
         if isinstance(event.message, TextMessageContent):
@@ -100,6 +107,8 @@ def _work(event) -> None:
             result = brain.reply(user_id, event.message.text, name=_display_name(user_id))
             log.info("user=%s intent=%s note=%s", user_id, result["intent"], result["note"])
             texts, buttons = result["messages"], result["quick_replies"]
+            if texts and result.get("first") and result.get("lang") == "en":
+                time.sleep(max(0.0, EN_FIRST_WAIT_SECONDS - (time.monotonic() - started)))
         else:
             if brain.is_paused(user_id):
                 return
