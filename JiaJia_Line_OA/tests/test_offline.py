@@ -249,7 +249,7 @@ class XiaoJia(unittest.TestCase):
         welcome = out["messages"][0]
         self.assertIn("Xiao Jia（小家）", welcome)
         self.assertIn("K.LEENA", welcome)
-        self.assertIn("6. คุยกับแอดมิน", welcome)
+        self.assertIn("พิมพ์ 1", welcome)
         self.assertEqual([label for label, _ in out["quick_replies"]][-1], "คุยกับแอดมิน")
 
     def test_welcome_only_once(self):
@@ -271,25 +271,31 @@ class XiaoJia(unittest.TestCase):
         self.assertIn("Hi Sarah!", out["messages"][0])
         self.assertEqual(out["quick_replies"][-1][0], "Talk to admin")
 
-    def test_number_after_welcome_picks_menu_question(self):
-        fake = FakeClient({"intent": "greeting", "language": "th", "reply": ""})
-        b = B.Brain(fake)
-        b.reply("u1", "สวัสดีค่ะ", now=OPEN)
-        fake.payload = {"intent": "answer", "language": "th", "reply": "มี 3 แพ็กเกจค่ะ 😊"}
-        b.reply("u1", "1", now=OPEN)
-        self.assertEqual(fake.calls[-1]["contents"][-1].parts[0].text, B.MENU["th"][0][1])
-
-    def test_six_after_welcome_hands_over_without_ai(self):
+    def test_one_hands_over_without_ai(self):
         fake = FakeClient({"intent": "greeting", "language": "th", "reply": ""})
         b = B.Brain(fake)
         b.reply("u1", "สวัสดีค่ะ", now=OPEN)
         calls = len(fake.calls)
-        out = b.reply("u1", "6", now=OPEN)
+        out = b.reply("u1", "1", now=OPEN)
         self.assertEqual(out["intent"], "talk_to_admin")
         self.assertEqual(len(fake.calls), calls)  # the AI wasn't asked
         self.assertEqual(out["quick_replies"], [])
         self.assertTrue(b.is_paused("u1"))
         self.assertEqual(b.reply("u1", "ฮัลโหล", now=OPEN)["messages"], [])  # bot stays quiet
+
+    def test_one_works_later_in_the_chat_too(self):
+        fake = FakeClient({"intent": "answer", "language": "en", "reply": "SOLO is 1,340 RMB 😊"})
+        b = returning(fake)
+        b.reply("u1", "how much is solo?", now=OPEN)
+        self.assertEqual(b.reply("u1", "1", now=OPEN)["intent"], "talk_to_admin")
+
+    def test_one_as_an_answer_to_how_many_is_left_alone(self):
+        fake = FakeClient({"intent": "answer", "language": "th", "reply": "มากันกี่ท่านคะ 😊"})
+        b = returning(fake)
+        b.reply("u1", "อยากหาห้องค่ะ", now=OPEN)
+        out = b.reply("u1", "1", now=OPEN)
+        self.assertNotEqual(out["intent"], "talk_to_admin")
+        self.assertEqual(fake.calls[-1]["contents"][-1].parts[0].text, "1")
 
     def test_admin_button_works_even_when_ai_is_down(self):
         b = returning(FakeClient(error=RuntimeError("API down")))
@@ -302,7 +308,7 @@ class XiaoJia(unittest.TestCase):
         for t in ("คุยกับแอดมิน", "ขอคุยกับแอดมินได้ไหมคะ", "อยากคุยกับแอดมินค่ะ", "ติดต่อเจ้าหน้าที่",
                   "Talk to admin", "I'd like to talk to a real person please", "can I speak to a human?"):
             self.assertTrue(B.wants_admin(t), t)
-        for t in ("แอดมินจะติดต่อกลับเมื่อไหร่", "คุยกับคนจีนรู้เรื่องไหม", "how do I talk to the landlord", "6"):
+        for t in ("แอดมินจะติดต่อกลับเมื่อไหร่", "คุยกับคนจีนรู้เรื่องไหม", "how do I talk to the landlord", "1"):
             self.assertFalse(B.wants_admin(t), t)
 
     def test_number_without_menu_is_left_alone(self):

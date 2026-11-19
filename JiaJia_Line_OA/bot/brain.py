@@ -93,7 +93,7 @@ TALK_TO_ADMIN = {
     "en": "Sure! I've passed this to our admin 🙏 {hours}\nXiao Jia will stay quiet in this chat so you can talk to them directly 🙋‍♀️",
 }
 
-# The question menu: shown in the welcome as a numbered list and under every reply as buttons.
+# The question menu: shown under every reply as tap-to-send buttons.
 # (button label, max 20 characters; the question it sends). The last item always hands over to the admin.
 MENU = {
     "th": [
@@ -117,22 +117,20 @@ MENU = {
 WELCOME = {
     "th": (
         "สวัสดีค่ะ{name} 😊 นี่คือ Xiao Jia（小家）ผู้ช่วยตอบคำถามของ JiaJia ค่ะ 🏠✨\n"
-        "ถามมาได้เลยนะคะ หรือพิมพ์เลข / กดปุ่มด้านล่างเพื่อเลือกคำถามก็ได้ค่ะ 👇\n"
-        "{menu}\n"
-        "อยากคุยกับแอดมินโดยตรง พิมพ์ 6 หรือกด \"คุยกับแอดมิน\" ได้เลย Xiao Jia จะหยุดตอบให้ค่ะ 🙋‍♀️"
+        "หากมีอะไรให้ช่วยถามมาได้เลยนะคะ หากต้องการปรึกษากับแอดมินโดยตรงสามารถพิมพ์ 1 ค่ะ"
     ),
     "en": (
         "Hi{name}! 😊 I'm Xiao Jia（小家）, JiaJia's assistant 🏠✨\n"
-        "Ask me anything, or type a number / tap a button below to pick a question 👇\n"
-        "{menu}\n"
-        "Want to talk to our admin directly? Type 6 or tap \"Talk to admin\" and I'll step aside 🙋‍♀️"
+        "Feel free to ask me anything. To talk to our admin directly, just type 1."
     ),
 }
+ADMIN_NUMBER = "1"  # typing just this hands the chat to the admin (the welcome says so)
+# ...unless the bot has just asked how many people / rooms etc., so "1" is an answer.
+_COUNT_QUESTION_RE = re.compile(r"กี่|how many|how much|which number|จำนวน", re.I)
 GREETING_AGAIN = {
     "th": "สวัสดีค่ะ 😊 มีอะไรให้ Xiao Jia ช่วยไหมคะ ✨",
     "en": "Hi again! 😊 What can Xiao Jia help you with? ✨",
 }
-WELCOME_MARK = "Xiao Jia（小家）"  # how we spot the welcome (and its numbered menu) in the chat history
 WELCOME_ONCE_DAYS = 180
 
 NON_TEXT = {
@@ -251,16 +249,12 @@ def unknown_numbers(reply: str, customer_text: str, extra_known: str = "") -> se
     return bad
 
 
-def menu_text(lang: str) -> str:
-    return "\n".join(f"{i}. {label}" for i, (label, _) in enumerate(MENU[lang], 1))
-
-
 def welcome_text(lang: str, name: str) -> str:
     if lang == "th":
         who = f" K.{name}" if name else " คุณลูกค้า"
     else:
         who = f" {name}" if name else ""
-    return WELCOME[lang].format(name=who, menu=menu_text(lang))
+    return WELCOME[lang].format(name=who)
 
 
 def wants_admin(text: str) -> bool:
@@ -403,12 +397,8 @@ class Brain:
         first = not history and not self.store.get(f"welcomed:{user_id}")
         last_bot = next((m["content"] for m in reversed(history) if m["role"] == "assistant"), "")
 
-        # Right after the welcome, a bare number picks from the menu.
-        if WELCOME_MARK in last_bot and text in {str(i) for i in range(1, len(MENU[lang]) + 1)}:
-            text = MENU[lang][int(text) - 1][1]
-            note = "picked from menu"
-
-        if wants_admin(text):  # button, "6" or typed request: no AI needed, works even if the AI is down
+        typed_admin_number = text == ADMIN_NUMBER and not _COUNT_QUESTION_RE.search(last_bot)
+        if typed_admin_number or wants_admin(text):  # button, "6" or typed request: no AI needed, works even if the AI is down
             intent, body = "talk_to_admin", ""
         else:
             live_sheet = sheet_text()
