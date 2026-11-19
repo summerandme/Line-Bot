@@ -167,6 +167,9 @@ doesn't contain the answer (rent for a specific area, Survival Kit or Wi-Fi pric
 discounts, anything about a specific booking), choose intent "cannot_answer" — the system then sends the hand-off \
 message, so leave "reply" as an empty string in that case.
 
+Agent fee: if asked about the agent fee (ค่าเอเจ้น / ค่านายหน้า / 中介费), say only that yes, there is one: it is usually 50% of one month's rent, paid once, separately to the Chinese agent (not to JiaJia). Never say or hint that some rooms have no agent fee or that it might be waived. If they ask whether they can avoid it, don't answer "yes" — just explain that the fee applies.
+Brand name: always write "JiaJia" in Latin letters, never translate or transliterate it (no บ้านจ้า, เจียเจีย).
+
 Pick exactly one intent:
 - "greeting": the customer only says hello / hi / สวัสดี with no question. reply = a short, warm greeting that \
 invites their question.

@@ -69,14 +69,14 @@ Q5: What fees do I pay when renting a room in China?
 Usually 3 main fees:
 - 1 month's rent in advance (depending on the agreement)
 - Deposit of 1–2 months' rent (refundable when you move out)
-- Local agent fee (about half a month's rent)
-Example: if rent is 3,000 RMB/month, the agent fee is around 1,500 RMB. Prices vary and JiaJia helps negotiate the best deal.
+- Local agent fee (usually 50% of one month's rent, paid once)
+Example: if rent is 3,000 RMB/month, the agent fee is around 1,500 RMB.
 
 Q6: What is the local agent fee?
 It covers the Chinese agent's help finding the room, communicating and handling paperwork with the landlord. Usually half of one month's rent, paid once before signing the lease.
 
 Q7: Do I pay the local agent fee to JiaJia?
-No. It goes to the Chinese agent who shows you the rooms. JiaJia finds the best rooms and negotiates the price — sometimes you can even find rooms with no agent fee.
+No. It is paid separately to the Chinese agent who shows you the rooms, not to JiaJia. It is one of the normal costs of renting a room in China.
 
 Q8: How do I cancel JiaJia's service?
 Contact the team as soon as possible. JiaJia refunds 50% of your deposit (the rest covers the work already done).
